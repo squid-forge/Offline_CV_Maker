@@ -23,19 +23,19 @@ export const TOKEN = /\[\[PII_\d{4}\]\]/g;
 const MAX_TERM_LENGTH = 250;
 const WORD = /[\p{L}\p{M}\p{N}_]/u;
 const EMAIL = /[\p{L}\p{N}._%+-]+@[\p{L}\p{N}.-]+\.[\p{L}]{2,}/giu;
+const WEB_LINK = /(?:https?:\/\/|www\.)[^\s<>"'\[\]{}()]+/giu;
+const PHONE = /(?<![\p{L}\p{N}])(?:\+[0-9]{8,15}|(?:\+[0-9]{1,3}[ .-]?)?(?:\([0-9]{2,4}\)[ .-]?|[0-9]{2,4}[ .-])[0-9]{3,4}[ .-]?[0-9]{4})(?![\p{L}\p{N}])/gu;
 
-const text = (value, limit = 250) => typeof value === "string" ? value.slice(0, limit) : "";
+const text = value => typeof value === "string" ? value : "";
 const normalized = value => value.normalize("NFC").trim().replace(/\s+/gu, " ");
 
 export function cleanDraft(source = {}) {
-  const personal = Object.fromEntries(PERSONAL_FIELDS.map(field => [field, text(source.personal?.[field])]));
+  const personal = Object.fromEntries(PERSONAL_FIELDS.map(field => [field, text(source.personal?.[field]).slice(0, 250)]));
   const photo = source.personal?.photo;
   personal.photo = typeof photo === "string" && photo.length <= 950000 &&
     /^data:image\/jpeg;base64,[A-Za-z0-9+/]+=*$/.test(photo) ? photo : "";
 
-  const result = Object.fromEntries(CONTENT_FIELDS.map(field => [
-    field, text(source[field], ["about", "skills"].includes(field) ? 4000 : 250),
-  ]));
+  const result = Object.fromEntries(CONTENT_FIELDS.map(field => [field, text(source[field])]));
   result.personal = personal;
   result.layout = source.layout === "experience" ? "experience" : "technical";
   result.customSections = [];
@@ -43,11 +43,11 @@ export function cleanDraft(source = {}) {
   for (const row of Array.isArray(source.customSections) ? source.customSections.slice(0, MAX_CUSTOM_SECTIONS) : []) {
     if (typeof row?.id !== "string" || !CUSTOM_SECTION_ID.test(row.id) || usedIds.has(row.id)) continue;
     usedIds.add(row.id);
-    result.customSections.push({ id: row.id, title: text(row.title), body: text(row.body, 4000) });
+    result.customSections.push({ id: row.id, title: text(row.title), body: text(row.body) });
   }
   result.appearance = cleanAppearance(source.appearance, result.customSections);
   result.vault = Object.fromEntries(Object.entries(source.vault || {}).filter(([key, value]) =>
-    /^\[\[PII_\d{4}\]\]$/.test(key) && typeof value === "string" && value.length <= 4000,
+    /^\[\[PII_\d{4}\]\]$/.test(key) && typeof value === "string",
   ));
   result.terms = [];
   for (const term of Array.isArray(source.terms) ? source.terms.slice(0, MAX_TERMS) : []) addTerm(result, term);
@@ -58,7 +58,7 @@ export function cleanDraft(source = {}) {
       Object.fromEntries(fields.map(field => {
         const value = row?.[field];
         if (group === "languages" && field !== "title") return [field, LEVELS.includes(value) ? value : ""];
-        return [field, text(value, field === "description" ? 4000 : 250)];
+        return [field, text(value)];
       })),
     ) : [];
   }
@@ -112,23 +112,42 @@ function matcher(phrase) {
   return new RegExp(left + pattern + right, "giu");
 }
 
-function privateValue(draft, value) {
-  const existing = Object.keys(draft.vault).find(key => draft.vault[key] === value);
-  if (existing) return existing;
-  for (let id = Object.keys(draft.vault).length + 1; id <= 9999; id++) {
-    const token = "[[PII_" + String(id).padStart(4, "0") + "]]";
-    if (!(token in draft.vault)) {
-      draft.vault[token] = value;
-      return token;
-    }
-  }
-  throw new Error("This draft has reached its private placeholder limit.");
+function phoneMatcher(value) {
+  const digits = value.replace(/[^0-9]/g, "");
+  if (digits.length < 7 || digits.length > 15) return null;
+  return new RegExp("(?<![0-9])\\+?\\(?" + [...digits].join("[ ().-]*") + "(?![0-9])", "g");
+}
+
+export function textLength(value) {
+  return value.replace(TOKEN, "x").length;
 }
 
 export function redactor(draft) {
   const matches = [
     ...draft.terms, ...PERSONAL_FIELDS.filter(field => field !== "photo").map(field => draft.personal[field]),
-  ].map(matcher).filter(Boolean).concat(EMAIL);
+  ].map(matcher).concat(phoneMatcher(draft.personal.phone)).filter(Boolean).concat(EMAIL, WEB_LINK, PHONE);
+  const used = new Set(Object.keys(draft.vault));
+  const byValue = new Map(Object.entries(draft.vault).map(([token, value]) => [value, token]));
+  const reserve = value => {
+    for (const token of value.match(TOKEN) ?? []) used.add(token);
+  };
+  for (const field of CONTENT_FIELDS) reserve(draft[field]);
+  for (const group of Object.keys(GROUPS)) for (const row of draft[group]) Object.values(row).forEach(reserve);
+  for (const row of draft.customSections) { reserve(row.title); reserve(row.body); }
+  let nextId = 1;
+  const privateValue = value => {
+    if (byValue.has(value)) return byValue.get(value);
+    // Drafts may contain placeholders from a redacted backup that has no vault.
+    while (nextId <= 9999) {
+      const token = "[[PII_" + String(nextId++).padStart(4, "0") + "]]";
+      if (used.has(token)) continue;
+      used.add(token);
+      byValue.set(value, token);
+      draft.vault[token] = value;
+      return token;
+    }
+    throw new Error("This draft has reached its private placeholder limit.");
+  };
 
   const hide = input => {
     const spans = matches.flatMap(pattern => Array.from(input.matchAll(pattern), match => [
@@ -142,13 +161,16 @@ export function redactor(draft) {
       while (index + 1 < spans.length && spans[index + 1][0] < stop) {
         stop = Math.max(stop, spans[++index][1]);
       }
-      result += input.slice(cursor, start) + privateValue(draft, input.slice(start, stop));
+      result += input.slice(cursor, start) + privateValue(input.slice(start, stop));
       cursor = stop;
     }
     return result + input.slice(cursor);
   };
-  return value => value.split(/(\[\[PII_\d{4}\]\])/g)
-    .map((part, index) => index % 2 ? part : hide(part.normalize("NFC"))).join("");
+  return value => {
+    reserve(value);
+    return value.split(/(\[\[PII_\d{4}\]\])/g)
+      .map((part, index) => index % 2 ? part : hide(part.normalize("NFC"))).join("");
+  };
 }
 
 export function agentDocument(draft) {
@@ -198,7 +220,7 @@ export function validateBlockReply(draft, original, input) {
     const json = input.trim().replace(/^```(?:json)?\s*([\s\S]*?)\s*```$/i, "$1");
     reply = JSON.parse(json);
   } catch {
-    throw new Error("Paste the JSON object returned by your AI.");
+    throw new Error("The agent returned an invalid block revision.");
   }
   const keys = Object.keys(original);
   if (!reply || typeof reply !== "object" || Array.isArray(reply) ||
@@ -208,7 +230,7 @@ export function validateBlockReply(draft, original, input) {
   const hide = redactor({ ...draft, vault: { ...draft.vault } });
   for (const key of keys) {
     const value = reply[key];
-    if (typeof value !== "string" || value.length > (["about", "skills", "description", "body"].includes(key) ? 4000 : 250) ||
+    if (typeof value !== "string" || textLength(value) > (["about", "skills", "description", "body"].includes(key) ? 4000 : 250) ||
         (Object.hasOwn(CEFR_FIELDS, key) && value !== "" && !LEVELS.includes(value))) {
       throw new Error("The reply has an invalid value for " + key + ".");
     }

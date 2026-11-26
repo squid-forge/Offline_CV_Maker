@@ -31,7 +31,7 @@ internal static class Program
             try { server.Start(); }
             catch (SocketException)
             {
-                if (!headless && AppIsRunning()) OpenBrowser();
+                if (!headless && IsCurrentServer()) OpenBrowser(Credentials.Token(Credentials.StoredSecret, "browser"));
                 else if (!headless) MessageBox.Show("The local port is busy. Close the other app and try again.", "Local CV Maker", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
@@ -41,13 +41,14 @@ internal static class Program
                 return;
             }
             Application.EnableVisualStyles();
-            using (var activityWindow = new ActivityWindow(OpenBrowser))
+            Action openBrowser = delegate { OpenBrowser(server.BrowserToken); };
+            using (var activityWindow = new ActivityWindow(openBrowser))
             using (var menu = new ContextMenuStrip())
             using (var tray = new NotifyIcon { Icon = SystemIcons.Application, Text = "Local CV Maker", ContextMenuStrip = menu, Visible = true })
             {
                 activity = activityWindow;
                 Log("Editor ready.");
-                menu.Items.Add("Open CV Maker", null, delegate { OpenBrowser(); });
+                menu.Items.Add("Open CV Maker", null, delegate { openBrowser(); });
                 menu.Items.Add("Activity", null, delegate
                 {
                     activityWindow.Show();
@@ -55,9 +56,9 @@ internal static class Program
                     activityWindow.Activate();
                 });
                 menu.Items.Add("Quit", null, delegate { Application.ExitThread(); });
-                tray.DoubleClick += delegate { OpenBrowser(); };
+                tray.DoubleClick += delegate { openBrowser(); };
                 activityWindow.Show();
-                OpenBrowser();
+                openBrowser();
                 Application.Run();
                 tray.Visible = false;
                 activity = null;
@@ -71,8 +72,10 @@ internal static class Program
         if (window != null) window.Record(message);
     }
 
-    private static bool AppIsRunning()
+    internal static bool IsCurrentServer()
     {
+        var secret = Credentials.StoredSecret;
+        if (secret == null) return false;
         try
         {
             var req = (HttpWebRequest)WebRequest.Create(LocalServer.Url + "/");
@@ -80,17 +83,21 @@ internal static class Program
             req.Proxy = null;
             req.AllowAutoRedirect = false;
             req.Timeout = 1200;
-            using (var response = req.GetResponse()) return response.Headers["X-Local-CV-Maker"] == "3";
+            string challenge = Credentials.Token(Credentials.NewSecret(), "challenge");
+            req.Headers.Add("X-CV-Challenge", challenge);
+            using (var response = req.GetResponse())
+                return response.Headers["X-Local-CV-Maker"] == Credentials.ServerVersion &&
+                    response.Headers["X-CV-Proof"] == Credentials.Token(secret, "server:" + challenge);
         }
         catch (WebException) { return false; }
     }
 
-    private static void OpenBrowser()
+    private static void OpenBrowser(string token)
     {
-        try { Process.Start(new ProcessStartInfo(LocalServer.Url + "/") { UseShellExecute = true }); }
+        try { Process.Start(new ProcessStartInfo(LocalServer.Url + "/#session=" + token) { UseShellExecute = true }); }
         catch (System.ComponentModel.Win32Exception)
         {
-            MessageBox.Show("Open " + LocalServer.Url + "/ in a browser.", "Local CV Maker");
+            MessageBox.Show("No default browser could be opened. Choose a default browser and reopen the editor from the system tray.", "Local CV Maker");
         }
     }
 }

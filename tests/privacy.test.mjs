@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
-import { addTerm, agentDocument, applyDocument, cleanDraft, redactor, toExport, validateBlockReply } from "../dist/privacy.mjs";
+import { addTerm, agentDocument, applyDocument, cleanDraft, redactor, textLength, toExport, validateBlockReply } from "../dist/privacy.mjs";
 
 test("the agent document carries placeholders and no vault, personal fields or real photo", () => {
   const draft = cleanDraft({
@@ -50,6 +50,36 @@ test("redacted backups can be opened without restoring unknown placeholders", ()
   assert.equal(toExport(draft, agentDocument(draft)).about, "A draft with [[PII_0038]].");
   assert.equal(draft.appearance.rules, "heavy");
   assert.equal(draft.appearance.fontSize, 11.5);
+});
+
+test("save, reload and backup preserve fields that grow during redaction", () => {
+  const about = "Ann ".repeat(1000);
+  const headline = "Ann ".repeat(62);
+  const draft = cleanDraft({ about, headline, personal: { name: "Ann" } });
+  const safe = agentDocument(draft);
+  assert.ok(safe.about.length > 4000 && safe.headline.length > 250);
+  assert.equal(textLength(safe.about), 2000);
+  applyDocument(draft, safe);
+  const reopened = cleanDraft(JSON.parse(JSON.stringify(draft)));
+  assert.equal(reopened.about, safe.about);
+  assert.equal(toExport(reopened, agentDocument(reopened)).about, about);
+  assert.equal(toExport(reopened, agentDocument(reopened)).headline, headline);
+  const redactedBackup = cleanDraft(JSON.parse(JSON.stringify(safe)));
+  assert.equal(redactedBackup.about, safe.about);
+  assert.deepEqual(validateBlockReply(draft, { about: safe.about }, JSON.stringify({ about: safe.about })), { about: safe.about });
+});
+
+test("contact details are masked and imported placeholders keep their original IDs", () => {
+  const about = "Prior ref [[PII_0001]]. Contact (202) 555-0199, +442079460958, user@example.invalid or https://example.invalid/ada.";
+  const draft = cleanDraft({ about, personal: { phone: "+44 20 7946 0958" }, customSections: [
+    { id: "custom-1", title: "Links", body: "www.example.invalid/profile" },
+  ] });
+  const safe = agentDocument(draft);
+  assert.doesNotMatch(JSON.stringify(safe), /555-0199|442079460958|example\.invalid/);
+  assert.equal(Object.hasOwn(draft.vault, "[[PII_0001]]"), false);
+  assert.equal(toExport(draft, safe).about, about);
+  assert.equal(toExport(draft, safe).customSections[0].body, draft.customSections[0].body);
+  assert.equal(agentDocument(cleanDraft({ about: "Worked 2020–2024." })).about, "Worked 2020–2024.");
 });
 
 test("custom section titles and bodies are redacted, restored and kept in their chosen order", () => {

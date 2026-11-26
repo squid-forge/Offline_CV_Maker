@@ -19,8 +19,10 @@ internal static class CvContract
     internal const int MaxCustomSections = 30;
     internal const string CustomSectionPattern = "^custom-[1-9][0-9]{0,5}$";
     private static readonly Regex CustomSectionId = new Regex(@"\Acustom-[1-9][0-9]{0,5}\z", RegexOptions.CultureInvariant);
-    private static readonly Regex Placeholder = new Regex(@"\[\[PII_\d{4}\]\]", RegexOptions.CultureInvariant);
+    private static readonly Regex Placeholder = new Regex(@"\[\[PII_[0-9]{4}\]\]", RegexOptions.CultureInvariant);
     private static readonly Regex Email = new Regex(@"[\w.%+-]+@[\w.-]+\.[\p{L}]{2,}", RegexOptions.CultureInvariant);
+    private static readonly Regex WebLink = new Regex(@"(?:https?://|www\.)[^\s<>""'\[\]{}()]+", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+    private static readonly Regex Phone = new Regex(@"(?<![\p{L}\p{N}])(?:\+[0-9]{8,15}|(?:\+[0-9]{1,3}[ .-]?)?(?:\([0-9]{2,4}\)[ .-]?|[0-9]{2,4}[ .-])[0-9]{3,4}[ .-]?[0-9]{4})(?![\p{L}\p{N}])", RegexOptions.CultureInvariant);
     private static readonly Regex Color = new Regex(@"^#[0-9a-fA-F]{6}$", RegexOptions.CultureInvariant);
 
     internal static JavaScriptSerializer Json()
@@ -55,8 +57,11 @@ internal static class CvContract
 
     private static string SafeText(object value, int limit)
     {
-        var text = StringValue(value, limit);
-        if (Email.IsMatch(text)) throw new ArgumentException("Replace email addresses with PII placeholders.");
+        var text = StringValue(value, limit * 12);
+        if (Placeholder.Replace(text, "x").Length > limit)
+            throw new ArgumentException("A CV text field is too long.");
+        if (Email.IsMatch(text) || WebLink.IsMatch(text) || Phone.IsMatch(text))
+            throw new ArgumentException("Replace contact details and web links with private placeholders.");
         return text;
     }
 

@@ -25,9 +25,11 @@ internal sealed class LocalServer : IDisposable
     private readonly TcpListener listener = new TcpListener(IPAddress.Loopback, Port);
     private readonly SemaphoreSlim slots = new SemaphoreSlim(16);
     private readonly object gate = new object();
-    private readonly Lazy<string> pairingToken = new Lazy<string>(LoadPairingToken);
+    private readonly byte[] secret = Credentials.StoredSecret ?? Credentials.NewSecret();
     private Dictionary<string, object> request;
     private Dictionary<string, object> proposal;
+
+    internal string BrowserToken { get { return Credentials.Token(secret, "browser"); } }
 
     internal void Start()
     {
@@ -109,7 +111,10 @@ internal sealed class LocalServer : IDisposable
                     using (var buffer = new MemoryStream())
                     {
                         source.CopyTo(buffer);
-                        Respond(stream, 200, asset[1], buffer.ToArray(), head);
+                        string challenge = Header(headers, "X-CV-Challenge");
+                        string proof = head && path == "/" && Credentials.IsToken(challenge)
+                            ? "X-CV-Proof: " + Credentials.Token(secret, "server:" + challenge) + "\r\n" : "";
+                        Respond(stream, 200, asset[1], buffer.ToArray(), head, proof);
                     }
                     return;
                 }
@@ -121,10 +126,24 @@ internal sealed class LocalServer : IDisposable
                 }
                 if (!path.StartsWith("/api/", StringComparison.Ordinal)) { Error(stream, 404, "Not found.", head); return; }
                 var role = Header(headers, "X-CV-Client");
-                bool browser = role == "browser" && (origin == Url || method == "GET" && origin == "");
-                bool agent = role == "stdio" && origin == "";
-                if (!browser && !agent) { Error(stream, 403, "Only the local CV app and MCP bridge may use the exchange.", head); return; }
-                if (path == "/api/exchange" && method == "GET")
+                var authorization = Header(headers, "Authorization");
+                if (origin != "" && origin != Url)
+                {
+                    DrainRejectedPost(stream, method, headers);
+                    Error(stream, 403, "Untrusted editor origin.", head);
+                    return;
+                }
+                bool browser = role == "browser" && (origin == Url || method == "GET" && origin == "") &&
+                    Credentials.Matches(authorization, BrowserToken);
+                bool agent = role == "stdio" && origin == "" &&
+                    Credentials.Matches(authorization, Credentials.BridgeToken);
+                if (!browser && !agent)
+                {
+                    DrainRejectedPost(stream, method, headers);
+                    Error(stream, 401, "Reopen CV Maker from the Windows app to connect.", head);
+                    return;
+                }
+                if (browser && path == "/api/exchange" && method == "GET")
                 {
                     lock (gate) { Json(stream, Snapshot()); }
                     return;
@@ -144,7 +163,7 @@ internal sealed class LocalServer : IDisposable
                 if (browser && path == "/api/connection")
                 {
                     CvContract.Keys(data);
-                    Json(stream, new { url = Url + "/mcp", token = pairingToken.Value, command = Assembly.GetExecutingAssembly().Location });
+                    Json(stream, new { url = Url + "/mcp", token = Credentials.Token(secret, "mcp"), command = Assembly.GetExecutingAssembly().Location });
                     return;
                 }
                 Json(stream, UpdateExchange(path, data, browser, agent));
@@ -157,9 +176,15 @@ internal sealed class LocalServer : IDisposable
 
     private void HandleMcp(Stream stream, string method, Dictionary<string, string> headers, string origin, bool head)
     {
-        if (origin != "" && origin != Url) { Error(stream, 403, "Untrusted MCP origin.", head); return; }
-        if (!MatchesToken(Header(headers, "Authorization")))
+        if (origin != "" && origin != Url)
         {
+            DrainRejectedPost(stream, method, headers);
+            Error(stream, 403, "Untrusted MCP origin.", head);
+            return;
+        }
+        if (!Credentials.Matches(Header(headers, "Authorization"), Credentials.Token(secret, "mcp")))
+        {
+            DrainRejectedPost(stream, method, headers);
             Respond(stream, 401, "application/json", Utf8.GetBytes("{\"error\":\"Use the bearer token from Connect AI.\"}"), head,
                 "WWW-Authenticate: Bearer realm=\"Local CV Maker\"\r\n");
             return;
@@ -180,41 +205,20 @@ internal sealed class LocalServer : IDisposable
         else Json(stream, result);
     }
 
-    private bool MatchesToken(string authorization)
+    private static void DrainRejectedPost(Stream stream, string method, Dictionary<string, string> headers)
     {
-        if (!authorization.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) || authorization.Length != 51) return false;
-        string expected = pairingToken.Value;
-        int difference = 0;
-        for (int i = 0; i < expected.Length; i++) difference |= expected[i] ^ authorization[i + 7];
-        return difference == 0;
-    }
-
-    private static string LoadPairingToken()
-    {
-        var bytes = new byte[32];
-        using (var rng = RandomNumberGenerator.Create()) rng.GetBytes(bytes);
-        string token = Convert.ToBase64String(bytes);
-        try
+        int remaining;
+        if (method != "POST" || Header(headers, "Transfer-Encoding") != "" ||
+            !Int32.TryParse(Header(headers, "Content-Length"), NumberStyles.None, CultureInfo.InvariantCulture, out remaining) ||
+            remaining <= 0 || remaining > CvContract.Limit) return;
+        // Finish reading a bounded body before closing the socket so Windows can deliver the rejection.
+        var buffer = new byte[Math.Min(remaining, 4096)];
+        while (remaining > 0)
         {
-            string profile = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            if (String.IsNullOrEmpty(profile)) return token;
-            string folder = Path.Combine(profile, "Local CV Maker");
-            Directory.CreateDirectory(folder);
-            string file = Path.Combine(folder, "mcp-token");
-            if (File.Exists(file))
-            {
-                string saved = File.ReadAllText(file);
-                if (saved.Length == token.Length && Convert.FromBase64String(saved).Length == bytes.Length) return saved;
-                return token;
-            }
-            using (var stream = new FileStream(file, FileMode.CreateNew))
-            using (var writer = new StreamWriter(stream, Utf8)) writer.Write(token);
+            int read = stream.Read(buffer, 0, Math.Min(remaining, buffer.Length));
+            if (read == 0) return;
+            remaining -= read;
         }
-        catch (IOException) { }
-        catch (UnauthorizedAccessException) { }
-        catch (FormatException) { }
-        catch (System.Security.SecurityException) { }
-        return token;
     }
 
     private static Dictionary<string, object> ReadBody(Stream stream, Dictionary<string, string> headers)
@@ -355,12 +359,82 @@ internal sealed class LocalServer : IDisposable
             status == 405 ? "Method Not Allowed" : "Bad Request";
         var headers = "HTTP/1.1 " + status + " " + reason + "\r\nConnection: close\r\n" +
             "Content-Type: " + media + "; charset=utf-8\r\nContent-Length: " + payload.Length + "\r\n" +
-            "Cache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nX-Local-CV-Maker: 3\r\n" +
+            "Cache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nX-Local-CV-Maker: " + Credentials.ServerVersion + "\r\n" +
             "Referrer-Policy: no-referrer\r\n" + extraHeaders +
             "Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; " +
             "img-src 'self' data:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'\r\n\r\n";
         var data = Encoding.ASCII.GetBytes(headers);
         stream.Write(data, 0, data.Length);
         if (!head) stream.Write(payload, 0, payload.Length);
+    }
+}
+
+internal static class Credentials
+{
+    internal const string ServerVersion = "4";
+    private static readonly Lazy<byte[]> storedSecret = new Lazy<byte[]>(Load);
+
+    internal static byte[] StoredSecret { get { return storedSecret.Value; } }
+    internal static string BridgeToken { get { return StoredSecret == null ? null : Token(StoredSecret, "stdio"); } }
+
+    internal static byte[] NewSecret()
+    {
+        var secret = new byte[32];
+        using (var rng = RandomNumberGenerator.Create()) rng.GetBytes(secret);
+        return secret;
+    }
+
+    internal static string Token(byte[] secret, string purpose)
+    {
+        using (var hmac = new HMACSHA256(secret))
+            return Convert.ToBase64String(hmac.ComputeHash(Encoding.UTF8.GetBytes(purpose)))
+                .TrimEnd('=').Replace('+', '-').Replace('/', '_');
+    }
+
+    internal static bool IsToken(string value)
+    {
+        if (value.Length != 43) return false;
+        foreach (char c in value)
+            if (!(c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-' || c == '_')) return false;
+        return true;
+    }
+
+    internal static bool Matches(string authorization, string expected)
+    {
+        if (expected == null || authorization.Length != expected.Length + 7 ||
+            !authorization.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)) return false;
+        int difference = 0;
+        for (int i = 0; i < expected.Length; i++) difference |= expected[i] ^ authorization[i + 7];
+        return difference == 0;
+    }
+
+    private static byte[] Load()
+    {
+        try
+        {
+            string profile = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            if (String.IsNullOrEmpty(profile)) return null;
+            string folder = Path.Combine(profile, "Local CV Maker");
+            Directory.CreateDirectory(folder);
+            string path = Path.Combine(folder, "local-access.dat");
+            if (!File.Exists(path))
+            {
+                string pending = Path.Combine(folder, "local-access-" + Guid.NewGuid().ToString("N") + ".tmp");
+                try
+                {
+                    File.WriteAllBytes(pending, ProtectedData.Protect(NewSecret(), null, DataProtectionScope.CurrentUser));
+                    try { File.Move(pending, path); }
+                    catch (IOException) { if (!File.Exists(path)) throw; }
+                }
+                finally { File.Delete(pending); }
+            }
+            if (new FileInfo(path).Length > 4096) return null;
+            byte[] secret = ProtectedData.Unprotect(File.ReadAllBytes(path), null, DataProtectionScope.CurrentUser);
+            return secret.Length == 32 ? secret : null;
+        }
+        catch (CryptographicException) { return null; }
+        catch (IOException) { return null; }
+        catch (UnauthorizedAccessException) { return null; }
+        catch (System.Security.SecurityException) { return null; }
     }
 }

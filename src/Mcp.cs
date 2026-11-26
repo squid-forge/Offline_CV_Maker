@@ -123,6 +123,9 @@ internal static class Mcp
 
     private static Dictionary<string, object> Exchange(string route, Dictionary<string, object> body)
     {
+        string token = Credentials.BridgeToken;
+        if (token == null) throw new ArgumentException("Windows could not access this user's local CV Maker settings.");
+        if (!Program.IsCurrentServer()) throw new ArgumentException("Open the updated Local CV Maker under this Windows account.");
         var request = (HttpWebRequest)WebRequest.Create(LocalServer.Url + "/api/" + route);
         request.Proxy = null;
         request.AllowAutoRedirect = false;
@@ -131,6 +134,7 @@ internal static class Mcp
         request.ReadWriteTimeout = 4000;
         request.ServicePoint.Expect100Continue = false;
         request.Headers.Add("X-CV-Client", "stdio");
+        request.Headers.Add("Authorization", "Bearer " + token);
         if (body != null)
         {
             var bytes = Utf8.GetBytes(CvContract.Json().Serialize(body));
@@ -141,7 +145,7 @@ internal static class Mcp
         }
         using (var response = request.GetResponse())
         {
-            if (response.Headers["X-Local-CV-Maker"] != "3") throw new ArgumentException("The local port belongs to another app.");
+            if (response.Headers["X-Local-CV-Maker"] != Credentials.ServerVersion) throw new ArgumentException("Open the updated Local CV Maker and reconnect this client.");
             using (var reader = new StreamReader(response.GetResponseStream(), Utf8))
             {
                 return CvContract.Object(CvContract.Json().DeserializeObject(reader.ReadToEnd()));

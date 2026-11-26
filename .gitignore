@@ -6,3 +6,5 @@
 .env
 .env.*
 mcp-token
+local-access.dat
+local-access-*.tmp

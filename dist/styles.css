@@ -212,6 +212,8 @@ select { padding-right: .45rem; }
 .agent-request-preview p { margin-top: .5rem; padding: .65rem; background: var(--subtle); border-radius: 4px; }
 dialog { width: min(40rem, calc(100% - 1.5rem)); max-height: calc(100% - 1.5rem); overflow: auto; padding: clamp(.75rem, 3vw, 1.15rem); border: 1px solid var(--control-line); border-radius: 6px; background: var(--surface); color: var(--ink); }
 dialog::backdrop { background: #141b28a0; }
+.share-content { margin: 0; padding: .65rem; max-height: 45vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--subtle); border: 1px solid var(--line); border-radius: 4px; font-size: .86rem; }
+#share-request h2 { font-size: 1.1rem; }
 .dialog-heading { display: flex; justify-content: space-between; align-items: center; gap: .75rem; margin-bottom: .85rem; }
 .dialog-heading h2 { font-size: 1.1rem; }
 dialog .fields > .button { justify-self: start; }

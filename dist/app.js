@@ -1,6 +1,6 @@
 "use strict";
 
-import { addTerm, agentDocument, applyDocument, cleanDraft, cleanAppearance, redactor, toExport, validateBlockReply, TOKEN, SECTIONS, GROUPS, ENTRY_FIELDS, CEFR_FIELDS, LEVELS, MAX_CUSTOM_SECTIONS } from "./privacy.mjs";
+import { addTerm, agentDocument, applyDocument, cleanDraft, cleanAppearance, redactor, textLength, toExport, validateBlockReply, TOKEN, SECTIONS, GROUPS, ENTRY_FIELDS, CEFR_FIELDS, LEVELS, MAX_CUSTOM_SECTIONS } from "./privacy.mjs";
 
 const STORAGE_KEY = "local-cv-maker-draft-v2";
 const APP_THEME_KEY = "local-cv-maker-ui-theme";
@@ -40,6 +40,8 @@ const notice = document.querySelector("#editor-message");
 const tabs = [...document.querySelectorAll("[data-tab]")];
 const backupInput = document.querySelector("#backup-file");
 const printButton = document.querySelector("#print-cv");
+let browserToken = readBrowserToken();
+const shareDialog = document.querySelector("#share-request");
 const appTheme = document.querySelector("#app-theme");
 const systemTheme = matchMedia("(prefers-color-scheme: dark)");
 const fileMenu = document.querySelector(".file-menu");
@@ -63,10 +65,19 @@ let reviewingProposal = false;
 let exchange = { request: null, proposal: null };
 let instruction = "";
 let exchangeReady = false;
+let exchangeError = "";
 let exchangeBusy = false;
 let exchangeGeneration = 0;
 let saveTimer = null;
 let draftRevision = 0;
+
+window.addEventListener("hashchange", () => {
+  const token = readBrowserToken();
+  if (token && token !== browserToken) {
+    browserToken = token;
+    void refreshExchange();
+  }
+});
 
 function applyAppTheme() {
   document.documentElement.dataset.uiTheme = appTheme.value === "system"
@@ -138,6 +149,7 @@ function syncMaskedFields() {
   for (const control of editor.querySelectorAll("[data-field]:not([data-personal])")) {
     const { field, group } = control.dataset;
     control.value = fieldRecord(control.dataset)[field];
+    if (control.maxLength >= 0) control.maxLength = fieldCapacity(control.value, control.tagName === "TEXTAREA");
     if (group && field === "title") updateBlockTitle(control, group, control.value);
   }
 }
@@ -160,12 +172,17 @@ function escapeText(value) {
 
 function field(label, key, value, options = {}) {
   const { multiline = false, type = "text", placeholder = "", attributes = "", canMark = false } = options;
-  const props = `data-field="${key}" ${attributes} maxlength="${multiline ? 4000 : 250}" placeholder="${escapeText(placeholder)}"`;
+  const limit = attributes === 'data-personal="true"' ? 250 : fieldCapacity(value, multiline);
+  const props = `data-field="${key}" ${attributes} maxlength="${limit}" placeholder="${escapeText(placeholder)}"`;
   const control = multiline
     ? `<textarea ${props} rows="4">${escapeText(value)}</textarea>`
     : `<input ${props} type="${type}" value="${escapeText(value)}">`;
   const labelled = `<label>${label}${control}</label>`;
   return canMark ? `<div class="markable">${labelled}<button class="text-button" type="button" data-action="mark-text">Mark selected text as private</button></div>` : labelled;
+}
+
+function fieldCapacity(value, multiline) {
+  return Math.max(value.length, (multiline ? 4000 : 250) + value.length - textLength(value));
 }
 
 function personal() {
@@ -481,16 +498,45 @@ function showNotice(message) {
   notice.hidden = !message;
 }
 
+function readBrowserToken() {
+  const key = "local-cv-maker-session";
+  const valid = value => typeof value === "string" && /^[A-Za-z0-9_-]{43}$/.test(value);
+  const fragment = new URLSearchParams(location.hash.slice(1)).get("session");
+  if (fragment !== null) history.replaceState(null, "", location.pathname + location.search);
+  try {
+    if (valid(fragment)) sessionStorage.setItem(key, fragment);
+    const saved = sessionStorage.getItem(key);
+    if (valid(saved)) return saved;
+  } catch { /* An authenticated tab can still work without browser storage. */ }
+  return valid(fragment) ? fragment : "";
+}
+
 async function exchangeApi(path, data) {
+  if (!browserToken) throw new Error("Open the editor from the Windows system tray to use AI.");
   const response = await fetch("/api/" + path, {
     method: data === undefined ? "GET" : "POST",
-    headers: { "X-CV-Client": "browser", ...(data === undefined ? {} : { "Content-Type": "application/json" }) },
+    headers: { "X-CV-Client": "browser", Authorization: "Bearer " + browserToken,
+      ...(data === undefined ? {} : { "Content-Type": "application/json" }) },
     body: data === undefined ? undefined : JSON.stringify(data),
     cache: "no-store",
   });
   const payload = await response.json();
   if (!response.ok) throw new Error(payload.error || "The local MCP connection is unavailable.");
   return payload;
+}
+
+function approveShare(content) {
+  const preview = document.querySelector("#share-request-content");
+  preview.textContent = JSON.stringify(content, null, 2);
+  preview.scrollTop = 0;
+  shareDialog.returnValue = "";
+  return new Promise(resolve => {
+    shareDialog.addEventListener("close", () => {
+      preview.textContent = "";
+      resolve(shareDialog.returnValue === "share");
+    }, { once: true });
+    shareDialog.showModal();
+  });
 }
 
 function blockContent(target) {
@@ -534,8 +580,7 @@ function syncBlockPanel() {
   const current = blockContent(aiBlock);
   const proposal = isCurrent && exchange.proposal?.block;
   const safeInstruction = redactor(draft)(aiInstruction.value.trim());
-  document.querySelector("#block-ai-share").textContent = [safeInstruction, current && JSON.stringify(current, null, 2)].filter(Boolean).join("\n\n");
-  aiQueue.textContent = exchange.request ? "Replace now" : "Send via MCP";
+  aiQueue.textContent = exchange.request ? "Review replacement" : "Review and send";
   aiQueue.disabled = !exchangeReady || exchangeBusy || !current || !safeInstruction;
   aiNext.hidden = !owned;
   aiNext.textContent = nextBlock ? "Remove follow-up" : "Send after current";
@@ -558,7 +603,7 @@ function syncBlockPanel() {
     catch (error) { validationError = error.message; }
   }
   aiApply.disabled = exchangeBusy || !!validationError;
-  const status = aiFailure || validationError || (!exchangeReady ? "Checking the local MCP service…"
+  const status = aiFailure || validationError || (!exchangeReady ? exchangeError || "Checking the local MCP service…"
     : proposal ? "Proposal ready to review."
     : isCurrent ? (exchange.request.retrieved ? "Your agent has retrieved this request." : "Queued. Run Process Local CV Maker request in your connected agent.")
     : exchange.request ? "A request is already active."
@@ -592,10 +637,12 @@ async function sendBlock(target, instruction, previousId) {
   const block = blockContent(target);
   if (!block) throw new Error("This block was removed.");
   const safeInstruction = redactor(draft)(instruction);
+  if (!await approveShare({ instruction: safeInstruction, block })) return false;
   saveDraft();
   const next = await exchangeApi("block-request", { instruction: safeInstruction, block, previousId });
   queuedBlock = { id: next.request.id, target, instruction: safeInstruction };
   showExchange(next);
+  return true;
 }
 
 async function editBlockRequest(action) {
@@ -619,8 +666,7 @@ async function editBlockRequest(action) {
   syncExchangeControls();
   try {
     if (action === "send") {
-      await sendBlock(target, typed, active?.id ?? null);
-      nextBlock = null;
+      if (await sendBlock(target, typed, active?.id ?? null)) nextBlock = null;
     } else {
       const proposal = exchange.proposal?.block;
       if (action === "apply") checkedReply(target, active.block, proposal);
@@ -634,9 +680,10 @@ async function editBlockRequest(action) {
       }
       const followUp = nextBlock;
       if (followUp) {
-        await sendBlock(followUp.target, followUp.instruction, null);
+        const sent = await sendBlock(followUp.target, followUp.instruction, null);
         nextBlock = null;
         askBlockAi(followUp.target);
+        if (!sent) aiInstruction.value = followUp.instruction;
       } else if (aiDialog.open) aiDialog.close();
     }
   } catch (error) {
@@ -710,7 +757,7 @@ function syncAgentPanel() {
   if (!connection) return;
   editor.querySelector("#agent-instruction-preview").textContent = redactor(draft)(instruction) || "Enter a request to preview it here.";
   const block = exchange.request?.kind === "block";
-  connection.textContent = !exchangeReady ? "MCP service unavailable. Start the Windows executable."
+  connection.textContent = !exchangeReady ? exchangeError || "MCP service unavailable. Start the Windows executable."
     : block ? "A block request is active."
     : exchange.proposal ? "Proposal ready for review."
     : exchange.request ? "Request queued. Run Process Local CV Maker request in your connected agent."
@@ -743,10 +790,12 @@ async function refreshExchange() {
     const next = await exchangeApi("exchange");
     if (generation !== exchangeGeneration) return;
     exchangeReady = true;
+    exchangeError = "";
     showExchange(next);
-  } catch {
+  } catch (error) {
     if (generation !== exchangeGeneration) return;
     exchangeReady = false;
+    exchangeError = error.message;
     syncExchangeControls();
   }
 }
@@ -792,8 +841,10 @@ async function editExchange(action) {
     if (action === "queue-request") {
       maskBody();
       const safeInstruction = redactor(draft)(instruction.trim());
+      const document = agentDocument(draft);
+      if (!await approveShare({ instruction: safeInstruction, document })) return;
       saveDraft();
-      showExchange(await exchangeApi("request", { instruction: safeInstruction, document: agentDocument(draft), previousId: exchange.request?.id ?? null }));
+      showExchange(await exchangeApi("request", { instruction: safeInstruction, document, previousId: exchange.request?.id ?? null }));
       nextBlock = null;
       showNotice("Redacted request queued.");
     } else if (exchange.request) {
@@ -867,6 +918,7 @@ editor.addEventListener("input", event => {
   if (!field) return;
   const record = fieldRecord(event.target.dataset);
   record[field] = event.target.value;
+  if (!event.target.dataset.personal && event.target.maxLength >= 0) event.target.maxLength = fieldCapacity(record[field], event.target.tagName === "TEXTAREA");
   if (group && field === "title") updateBlockTitle(event.target, group, event.target.value);
   changed();
 });
@@ -880,6 +932,7 @@ editor.addEventListener("focusout", event => {
   if (safe === record[field]) return;
   record[field] = safe;
   event.target.value = safe;
+  if (event.target.maxLength >= 0) event.target.maxLength = fieldCapacity(safe, event.target.tagName === "TEXTAREA");
   if (group && field === "title") updateBlockTitle(event.target, group, safe);
   changed();
 });

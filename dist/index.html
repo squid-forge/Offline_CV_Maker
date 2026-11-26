@@ -88,7 +88,6 @@
     </div>
     <div class="fields">
       <label>What should the AI change?<textarea id="block-ai-instruction" rows="2" maxlength="1000"></textarea></label>
-      <details class="agent-request-preview"><summary>Review what the AI will receive</summary><p id="block-ai-share" class="cv-text"></p></details>
       <div class="agent-actions">
         <button class="button primary" id="block-ai-queue" type="button">Send via MCP</button>
         <button class="button ghost" id="block-ai-next" type="button" hidden>Send after current</button>
@@ -105,6 +104,17 @@
         <button class="button primary" id="block-ai-apply" type="button">Apply to block</button>
       </div>
     </div>
+  </dialog>
+  <dialog id="share-request" aria-labelledby="share-request-title">
+    <form method="dialog" class="fields">
+      <h2 id="share-request-title">Review before sharing</h2>
+      <p class="privacy-hint">Check this exact text for names, locations, or other identifying details. Your agent may send the text to its model provider.</p>
+      <pre id="share-request-content" class="share-content" tabindex="0"></pre>
+      <div class="agent-actions">
+        <button class="button ghost" value="cancel" autofocus>Cancel</button>
+        <button class="button primary" value="share">Share redacted request</button>
+      </div>
+    </form>
   </dialog>
 </body>
 </html>
