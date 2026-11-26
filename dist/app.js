@@ -36,7 +36,6 @@ const editor = document.querySelector("#editor-panel");
 const preview = document.querySelector("#cv-preview");
 const status = document.querySelector("#save-status");
 const notice = document.querySelector("#editor-message");
-const layout = document.querySelector("#layout");
 const tabs = [...document.querySelectorAll("[data-tab]")];
 const backupInput = document.querySelector("#backup-file");
 const printButton = document.querySelector("#print-cv");
@@ -49,6 +48,8 @@ const aiNext = document.querySelector("#block-ai-next");
 const aiCancel = document.querySelector("#block-ai-cancel");
 const aiApply = document.querySelector("#block-ai-apply");
 const openSections = new Set(["about"]);
+const openEntries = new WeakSet();
+const entryRecords = new WeakMap();
 let aiBlock = null;
 let queuedBlock = null;
 let nextBlock = null;
@@ -100,10 +101,6 @@ function maskBody() {
   for (const group of [...Object.keys(GROUPS), "customSections"]) {
     draft[group].forEach((row, index) => Object.assign(row, safe[group][index]));
   }
-}
-
-function syncLayout() {
-  layout.value = draft.appearance.sectionOrder.length ? "custom" : draft.layout;
 }
 
 function syncMaskedFields() {
@@ -208,20 +205,20 @@ function sectionOrder(cv) {
   return order;
 }
 
-function stylePanel() {
+function matchesTheme(style) {
+  return Object.entries(style).every(([key, value]) => draft.appearance[key] === value);
+}
+
+function stylePanel(customizing) {
   const settings = draft.appearance;
   return `<div class="fields">
     <div class="theme-grid" role="group" aria-label="CV themes">${Object.entries(THEMES).map(([key, [label, style]]) =>
-      `<button class="theme-card" type="button" data-action="theme" data-key="${key}" aria-pressed="${Object.entries(style).every(([name, value]) => settings[name] === value)}">
-        <span class="theme-sample" data-theme="${key}" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-        <span>${label}</span>
-      </button>`).join("")}</div>
-    <h3 class="style-subtitle">Fine-tune the theme</h3>
-    <div class="field-pair">
+      `<button class="theme-card" type="button" data-action="theme" data-key="${key}" aria-pressed="${matchesTheme(style)}">${label}</button>`).join("")}</div>
+    <details class="theme-options" ${customizing ? "open" : ""}>
+      <summary>Customize theme</summary>
+      <div class="field-pair">
       <label>Accent color<input type="color" data-style="accent" value="${settings.accent}"></label>
       <label>Text color<input type="color" data-style="textColor" value="${settings.textColor}"></label>
-    </div>
-    <div class="field-pair">
       ${Object.entries(STYLE_SELECTS).map(([key, [label, choices]]) =>
         `<label>${label}<select data-style="${key}">${Object.entries(choices).map(([value, title]) =>
           `<option value="${value}"${value === settings[key] ? " selected" : ""}>${title}</option>`).join("")}</select></label>`,
@@ -229,13 +226,14 @@ function stylePanel() {
       ${Object.entries(STYLE_NUMBERS).map(([key, [label, min, max, step]]) =>
         `<label>${label}<input type="number" data-style="${key}" value="${settings[key]}" min="${min}" max="${max}" step="${step}"></label>`,
       ).join("")}
-    </div>
+      </div>
+    </details>
   </div>`;
 }
 
 function agentPanel() {
   return `<div class="fields">
-    <p class="privacy-hint">Request changes to the full CV or its appearance. Your agent receives the redacted CV and your instruction. For a single section or entry, use Ask AI in Sections.</p>
+    <p class="privacy-hint">Send the redacted CV to your agent for editing or styling.</p>
     <label>Editing request<textarea id="agent-instruction" rows="4" maxlength="4000" placeholder="Tighten the bullet points and style the CV for one page.">${escapeText(instruction)}</textarea></label>
     <details class="agent-request-preview"><summary>Review the request the agent will see</summary><p id="agent-instruction-preview" class="cv-text"></p></details>
     <div class="agent-actions">
@@ -252,11 +250,21 @@ function agentPanel() {
   </div>`;
 }
 
-function listEditor(group, openIndex) {
+function moveControls(scope, attributes, label, index, count) {
+  return `<div class="move-controls">${["up", "down"].map((direction, offset) => {
+    const action = scope === "section" ? "section-" + direction : direction;
+    const text = `Move ${scope} ${direction}`;
+    return `<button class="move-button" type="button" data-action="${action}" ${attributes}
+      aria-label="${text}" aria-describedby="${label}" title="${text}" ${index === (offset ? count - 1 : 0) ? "disabled" : ""}>${offset ? "↓" : "↑"}</button>`;
+  }).join("")}</div>`;
+}
+
+function listEditor(group) {
   const [, singular, organisationLabel] = GROUPS[group];
   const entries = draft[group];
   return `${entries.map((row, index) => {
       const attributes = `data-group="${group}" data-index="${index}"`;
+      const label = `entry-${group}-${index}`;
       const inputs = group === "languages" ? `<div class="levels">${Object.entries(CEFR_FIELDS).map(([key, label]) =>
         `<label>${label}<select data-field="${key}" ${attributes}>
           <option value="">—</option>${LEVELS.map(level => `<option${row[key] === level ? " selected" : ""}>${level}</option>`).join("")}
@@ -266,36 +274,50 @@ function listEditor(group, openIndex) {
         ${field("Dates", "dates", row.dates, { attributes, placeholder: "MM/YYYY – MM/YYYY" })}
         ${field("Highlights · one per line", "description", row.description, { attributes, multiline: true, canMark: true })}
       `;
-      return `<details class="edit-entry" ${index === openIndex ? "open" : ""}>
-        <summary><span>${escapeText(row.title || ("New " + singular))}</span></summary>
+      return `<div class="entry-row">
+      <details class="edit-entry" ${attributes} ${openEntries.has(row) ? "open" : ""}>
+        <summary id="${label}"><span>${escapeText(row.title || ("New " + singular))}</span></summary>
         <div class="fields">${field(group === "languages" ? "Language" : "Title", "title", row.title, { attributes })}${inputs}
           <div class="entry-actions">
             <button class="button ghost" type="button" data-action="ask-ai" ${attributes}>Ask AI</button>
-            <button class="button ghost" type="button" data-action="up" ${attributes} ${index === 0 ? "disabled" : ""}>Move up</button>
-            <button class="button ghost" type="button" data-action="down" ${attributes} ${index >= entries.length - 1 ? "disabled" : ""}>Move down</button>
             <button class="text-button" type="button" data-action="remove" ${attributes}>Remove</button>
           </div>
         </div>
-      </details>`;
+      </details>
+      ${moveControls("entry", attributes, label, index, entries.length)}
+      </div>`;
     }).join("")}
     <button class="button ghost" type="button" data-action="add" data-group="${group}" ${entries.length >= 50 ? "disabled" : ""}>Add ${singular}</button>`;
 }
 
-function blockEditor(openGroup, openIndex) {
+function blockEditor() {
   const order = sectionOrder(draft);
+  const layout = draft.appearance.sectionOrder.length ? "custom" : draft.layout;
   return `<div class="block-list">
+  <div class="section-tools">
+    <label for="layout">Order
+      <select id="layout">
+        <option value="technical" ${layout === "technical" ? "selected" : ""}>Education first</option>
+        <option value="experience" ${layout === "experience" ? "selected" : ""}>Experience first</option>
+        <option value="custom" disabled ${layout === "custom" ? "selected" : ""}>Custom</option>
+      </select>
+    </label>
+    <button class="button ghost" type="button" data-action="add-section" ${draft.customSections.length >= MAX_CUSTOM_SECTIONS ? "disabled" : ""}>Add section</button>
+  </div>
   <button class="button ghost" type="button" data-action="review-block" hidden>Open block request</button>
   ${order.map((key, index) => {
     const customIndex = draft.customSections.findIndex(row => row.id === key);
     const custom = draft.customSections[customIndex];
     const title = custom ? custom.title || "Custom section" : SECTION_LABELS[key];
+    const label = `section-${key}`;
     const group = custom ? "customSections" : key;
     const customAttributes = `data-group="${group}" data-index="${customIndex}"`;
     const singleFields = { headline: "headline", about: "about", skills: "skills", languages: "motherTongue" };
     const single = singleFields[key];
     const multiline = key === "about" || key === "skills";
-    return `<details class="block-card" data-section="${key}" ${openSections.has(key) ? "open" : ""}>
-      <summary><span>${escapeText(title)}</span></summary>
+    return `<div class="section-row">
+    <details class="block-card" data-section="${key}" ${openSections.has(key) ? "open" : ""}>
+      <summary id="${label}"><span>${escapeText(title)}</span></summary>
       <div class="fields block-fields">
         ${single ? field(key === "languages" ? "Mother tongue" : title, single, draft[single], { multiline, canMark: multiline }) : ""}
         ${custom ? field("Section title", "title", custom.title, { attributes: customAttributes }) +
@@ -304,31 +326,34 @@ function blockEditor(openGroup, openIndex) {
           <button class="button ghost" type="button" data-action="ask-ai" ${custom ? customAttributes : `data-key="${single}"`}>
             ${key === "languages" ? "Ask AI about mother tongue" : "Ask AI"}
           </button>
-        </div>` : ""}
-        ${Object.hasOwn(GROUPS, key) ? `<div>${listEditor(key, openGroup === key ? openIndex : undefined)}</div>` : ""}
-        <div class="block-actions">
-          <button class="text-button" type="button" data-action="section-up" data-key="${key}" ${index === 0 ? "disabled" : ""}>Move section up</button>
-          <button class="text-button" type="button" data-action="section-down" data-key="${key}" ${index === order.length - 1 ? "disabled" : ""}>Move section down</button>
           ${custom ? `<button class="text-button" type="button" data-action="remove-section" data-key="${key}">Remove section</button>` : ""}
-        </div>
+        </div>` : ""}
+        ${Object.hasOwn(GROUPS, key) ? `<div>${listEditor(key)}</div>` : ""}
       </div>
-    </details>`;
+    </details>
+    ${moveControls("section", `data-key="${key}"`, label, index, order.length)}
+    </div>`;
   }).join("")}
-  <button class="button ghost" type="button" data-action="add-section" ${draft.customSections.length >= MAX_CUSTOM_SECTIONS ? "disabled" : ""}>Add custom section</button>
   </div>`;
 }
 
-function renderEditor(openGroup, openIndex, openSection, resetSections = false) {
-  if (!resetSections) {
-    for (const card of editor.querySelectorAll(".block-card")) {
-      if (card.open) openSections.add(card.dataset.section);
-      else openSections.delete(card.dataset.section);
-    }
+function renderEditor(openSection) {
+  for (const card of editor.querySelectorAll(".block-card")) {
+    if (card.open) openSections.add(card.dataset.section);
+    else openSections.delete(card.dataset.section);
+  }
+  for (const entry of editor.querySelectorAll(".edit-entry")) {
+    const row = entryRecords.get(entry);
+    if (entry.open) openEntries.add(row);
+    else openEntries.delete(row);
   }
   if (openSection) openSections.add(openSection);
-  if (activeTab === "blocks") editor.innerHTML = blockEditor(openGroup, openIndex);
+  if (activeTab === "blocks") {
+    editor.innerHTML = blockEditor();
+    for (const entry of editor.querySelectorAll(".edit-entry")) entryRecords.set(entry, fieldRecord(entry.dataset));
+  }
   if (activeTab === "personal") editor.innerHTML = personal();
-  if (activeTab === "style") editor.innerHTML = stylePanel();
+  if (activeTab === "style") editor.innerHTML = stylePanel(editor.querySelector(".theme-options")?.open);
   if (activeTab === "agent") {
     editor.innerHTML = agentPanel();
     syncAgentPanel();
@@ -748,7 +773,6 @@ async function editExchange(action) {
           return;
         }
         applyDocument(draft, document);
-        syncLayout();
         changed();
         saveDraft();
         showNotice("Proposal applied. Personal values remain hidden until export.");
@@ -789,13 +813,6 @@ for (const tab of tabs) {
   });
 }
 
-layout.addEventListener("change", () => {
-  draft.layout = layout.value;
-  draft.appearance.sectionOrder = [];
-  if (activeTab === "blocks") renderEditor();
-  changed();
-});
-
 editor.addEventListener("input", event => {
   if (event.target.id === "agent-instruction") {
     instruction = event.target.value;
@@ -807,6 +824,9 @@ editor.addEventListener("input", event => {
     const value = event.target.type === "number" ? event.target.valueAsNumber : event.target.value;
     if (event.target.validity.valid) {
       draft.appearance = cleanAppearance({ ...draft.appearance, [style]: value }, draft.customSections);
+      for (const button of editor.querySelectorAll('[data-action="theme"]')) {
+        button.setAttribute("aria-pressed", String(matchesTheme(THEMES[button.dataset.key][1])));
+      }
       changed();
     }
     return;
@@ -886,7 +906,7 @@ editor.addEventListener("click", event => {
     while (draft.customSections.some(row => row.id === "custom-" + next)) next++;
     const id = "custom-" + next;
     draft.customSections.push({ id, title: "", body: "" });
-    renderEditor(undefined, undefined, id);
+    renderEditor(id);
     editor.querySelector(`[data-section="${id}"] input`).focus();
     changed();
     return;
@@ -894,7 +914,7 @@ editor.addEventListener("click", event => {
   if (action === "remove-section") {
     const row = draft.customSections.find(item => item.id === key);
     if (!row || ((row.title || row.body) && !confirm("Remove this custom section?"))) return;
-    editor.querySelector(`[data-section="${key}"]`).remove();
+    editor.querySelector(`[data-section="${key}"]`).closest(".section-row").remove();
     openSections.delete(key);
     draft.customSections = draft.customSections.filter(item => item.id !== key);
     draft.appearance.sectionOrder = draft.appearance.sectionOrder.filter(id => id !== key);
@@ -909,10 +929,8 @@ editor.addEventListener("click", event => {
     const next = position + (action === "section-up" ? -1 : 1);
     [order[position], order[next]] = [order[next], order[position]];
     draft.appearance.sectionOrder = order;
-    syncLayout();
     renderEditor();
-    const card = editor.querySelector(`[data-section="${key}"]`);
-    (card.querySelector(`[data-action="${action}"]:not(:disabled)`) ?? card.querySelector("summary")).focus();
+    focusMovedRow(editor.querySelector(`[data-section="${key}"]`), action);
     changed();
     return;
   }
@@ -954,27 +972,42 @@ editor.addEventListener("click", event => {
   const rows = draft[group];
   if (!rows) return;
   const position = Number(index);
-  let openIndex;
+  let newPosition;
   if (action === "add" && rows.length < 50) {
     rows.push(group === "languages" ? Object.fromEntries(["title", ...Object.keys(CEFR_FIELDS)].map(field => [field, ""])) :
       Object.fromEntries(ENTRY_FIELDS.map(field => [field, ""])));
-    openIndex = rows.length - 1;
+    newPosition = rows.length - 1;
+    openEntries.add(rows[newPosition]);
   } else if (action === "remove") {
     rows.splice(position, 1);
   } else if (action === "up" || action === "down") {
-    openIndex = position + (action === "up" ? -1 : 1);
-    [rows[position], rows[openIndex]] = [rows[openIndex], rows[position]];
+    newPosition = position + (action === "up" ? -1 : 1);
+    [rows[position], rows[newPosition]] = [rows[newPosition], rows[position]];
   }
-  renderEditor(group, openIndex);
-  const focused = action === "add" ? editor.querySelector("details[open] input")
-    : editor.querySelector(`[data-action="${action}"][data-group="${group}"][data-index="${openIndex}"]:not(:disabled)`)
-      ?? editor.querySelector("details[open] summary")
-      ?? editor.querySelector(`[data-action="add"][data-group="${group}"]`);
-  focused?.focus();
+  renderEditor();
+  const entry = editor.querySelector(`.edit-entry[data-group="${group}"][data-index="${newPosition}"]`);
+  if (action === "add") entry.querySelector("input").focus();
+  else if (entry) focusMovedRow(entry, action);
+  else editor.querySelector(`[data-action="add"][data-group="${group}"]`)?.focus();
   changed();
 });
 
+function focusMovedRow(details, action) {
+  const controls = details.nextElementSibling;
+  (controls.querySelector(`[data-action="${action}"]:enabled`)
+    ?? controls.querySelector("button:enabled")
+    ?? details.querySelector("summary")).focus();
+}
+
 editor.addEventListener("change", async event => {
+  if (event.target.id === "layout") {
+    draft.layout = event.target.value;
+    draft.appearance.sectionOrder = [];
+    renderEditor();
+    editor.querySelector("#layout").focus();
+    changed();
+    return;
+  }
   if (event.target.id !== "photo-file" || !event.target.files[0]) return;
   const file = event.target.files[0];
   event.target.value = "";
@@ -1009,7 +1042,6 @@ function loadDraft(source) {
   draftRevision++;
   draft = cleanDraft(source);
   maskBody();
-  syncLayout();
   reviewingProposal = false;
   editor.replaceChildren();
   openSections.clear();
@@ -1094,7 +1126,6 @@ window.addEventListener("pagehide", () => {
   if (saveTimer !== null) saveDraft();
 });
 
-syncLayout();
 maskBody();
 renderEditor();
 renderPreview();

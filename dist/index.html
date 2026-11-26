@@ -13,7 +13,7 @@
   <header class="topbar">
     <div class="brand">
       <div class="mark" aria-hidden="true"><span></span><span></span><span></span></div>
-      <div><h1>Local CV Maker</h1><p>AI-compatible CV maker</p></div>
+      <div><h1>Local CV Maker</h1><p>Works offline · Optional AI editing</p></div>
     </div>
     <div class="toolbar">
       <span class="save-status" id="save-status" role="status">Opening draft…</span>
@@ -26,17 +26,6 @@
   </header>
   <main class="workspace">
     <section class="editor" aria-label="CV editor">
-      <p class="workspace-intro">Build and export your CV offline. Keep personal details in a separate section, with optional editing help from your MCP-compatible AI agent.</p>
-      <div class="editor-heading">
-        <h2>Edit your CV</h2>
-        <label class="layout-choice">Section order
-          <select id="layout">
-            <option value="technical">Education first</option>
-            <option value="experience">Work experience first</option>
-            <option value="custom" disabled>Custom order</option>
-          </select>
-        </label>
-      </div>
       <div class="tabs" role="tablist" aria-label="CV sections">
         <button class="tab" type="button" role="tab" id="tab-blocks" aria-selected="true" aria-controls="editor-panel" data-tab="blocks">Sections</button>
         <button class="tab" type="button" role="tab" id="tab-personal" aria-selected="false" aria-controls="editor-panel" tabindex="-1" data-tab="personal">Personal</button>
