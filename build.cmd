@@ -18,6 +18,7 @@ pushd "%~dp0" || exit /b 1
   /reference:System.Web.Extensions.dll /reference:System.Security.dll ^
   /resource:dist\index.html,index.html /resource:dist\styles.css,styles.css ^
   /resource:dist\app.js,app.js /resource:dist\privacy.mjs,privacy.mjs ^
+  /resource:LICENSE,LICENSE ^
   src\Program.cs src\LocalServer.cs src\CvContract.cs src\Mcp.cs
 set "localCvBuildResult=%ERRORLEVEL%"
 popd

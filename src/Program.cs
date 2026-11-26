@@ -12,9 +12,11 @@ using System.Reflection;
 [assembly: AssemblyTitle("Local CV Maker")]
 [assembly: AssemblyProduct("Local CV Maker")]
 [assembly: AssemblyVersion("0.2.0.0")]
+[assembly: AssemblyInformationalVersion(Program.AppVersion)]
 
 internal static class Program
 {
+    internal const string AppVersion = "0.2.0-alpha.1";
     private static volatile ActivityWindow activity;
 
     [STAThread]

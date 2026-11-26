@@ -2,6 +2,12 @@
 
 An AI-compatible CV maker for Windows with a separate **Personal** section. Build, preview, and export your CV completely offline, or connect a compatible MCP agent for optional editing help. The app opens a local editor in your browser.
 
+## Download
+
+Get the **experimental alpha** Windows executable from [GitHub Releases](https://github.com/squid-forge/Offline_CV_Maker/releases). The build is unsigned. Windows SmartScreen or your organization's security policy may warn or block it.
+
+Each release includes `SHA256SUMS.txt` so you can check the download. You can also [build from source](#build-from-source).
+
 ## Run
 
 Double-click **Local CV Maker.exe** on Windows 10 or 11. The app opens the local editor in your browser at `http://127.0.0.1:8769/` and a small **Activity** window. Activity shows startup and request status. **Hide** or close it to keep using the editor. The system tray menu can reopen the editor or Activity and quit the app.

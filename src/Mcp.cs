@@ -55,7 +55,7 @@ internal static class Mcp
             {
                 protocolVersion = Supports(proposed) ? proposed : Protocols[0],
                 capabilities = new { tools = new { listChanged = false }, prompts = new { listChanged = false } },
-                serverInfo = new { name = "local-cv-maker", version = "0.2.0" },
+                serverInfo = new { name = "local-cv-maker", version = Program.AppVersion },
                 instructions = AgentInstructions,
             });
         }
