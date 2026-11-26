@@ -3,6 +3,7 @@
 import { addTerm, agentDocument, applyDocument, cleanDraft, cleanAppearance, redactor, toExport, validateBlockReply, TOKEN, SECTIONS, GROUPS, ENTRY_FIELDS, CEFR_FIELDS, LEVELS, MAX_CUSTOM_SECTIONS } from "./privacy.mjs";
 
 const STORAGE_KEY = "local-cv-maker-draft-v2";
+const APP_THEME_KEY = "local-cv-maker-ui-theme";
 const EXAMPLE = {
   layout: "technical",
   headline: "Junior technical assistant",
@@ -39,6 +40,9 @@ const notice = document.querySelector("#editor-message");
 const tabs = [...document.querySelectorAll("[data-tab]")];
 const backupInput = document.querySelector("#backup-file");
 const printButton = document.querySelector("#print-cv");
+const appTheme = document.querySelector("#app-theme");
+const systemTheme = matchMedia("(prefers-color-scheme: dark)");
+const fileMenu = document.querySelector(".file-menu");
 const aiDialog = document.querySelector("#block-ai");
 const aiInstruction = document.querySelector("#block-ai-instruction");
 const aiProposal = document.querySelector("#block-ai-proposal");
@@ -63,6 +67,33 @@ let exchangeBusy = false;
 let exchangeGeneration = 0;
 let saveTimer = null;
 let draftRevision = 0;
+
+function applyAppTheme() {
+  document.documentElement.dataset.uiTheme = appTheme.value === "system"
+    ? (systemTheme.matches ? "dark" : "light")
+    : appTheme.value;
+}
+
+try {
+  const saved = localStorage.getItem(APP_THEME_KEY);
+  if ([...appTheme.options].some(option => option.value === saved)) appTheme.value = saved;
+} catch { /* The theme still works for the current session. */ }
+applyAppTheme();
+systemTheme.addEventListener("change", applyAppTheme);
+appTheme.addEventListener("change", () => {
+  applyAppTheme();
+  try { localStorage.setItem(APP_THEME_KEY, appTheme.value); }
+  catch { /* The theme still works for the current session. */ }
+});
+
+document.addEventListener("click", event => {
+  if (fileMenu.open && !fileMenu.contains(event.target)) fileMenu.open = false;
+});
+fileMenu.addEventListener("keydown", event => {
+  if (event.key !== "Escape" || !fileMenu.open) return;
+  fileMenu.open = false;
+  fileMenu.querySelector("summary").focus();
+});
 
 function readDraft() {
   try {
@@ -1077,8 +1108,16 @@ function saveBackup(full) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-document.querySelector("#save-backup").addEventListener("click", () => saveBackup(false));
-document.querySelector("#load-backup").addEventListener("click", () => backupInput.click());
+document.querySelector("#save-backup").addEventListener("click", () => {
+  fileMenu.open = false;
+  fileMenu.querySelector("summary").focus();
+  saveBackup(false);
+});
+document.querySelector("#load-backup").addEventListener("click", () => {
+  fileMenu.open = false;
+  fileMenu.querySelector("summary").focus();
+  backupInput.click();
+});
 backupInput.addEventListener("change", async () => {
   const file = backupInput.files[0];
   backupInput.value = "";

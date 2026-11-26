@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="light">
+  <meta name="color-scheme" content="light dark">
   <meta name="description" content="An AI-compatible CV maker with a separate Personal section. Build and export your CV offline, or connect a compatible MCP agent for optional editing help.">
   <title>Local CV Maker</title>
   <link rel="stylesheet" href="/styles.css">
@@ -12,14 +12,27 @@
 <body>
   <header class="topbar">
     <div class="brand">
-      <div class="mark" aria-hidden="true"><span></span><span></span><span></span></div>
+      <span class="mark" aria-hidden="true"></span>
       <div><h1>Local CV Maker</h1><p>Works offline · Optional AI editing</p></div>
     </div>
     <div class="toolbar">
       <span class="save-status" id="save-status" role="status">Opening draft…</span>
+      <details class="file-menu">
+        <summary class="button ghost">File</summary>
+        <div class="file-actions">
+          <button class="button ghost" id="load-backup" type="button">Open backup</button>
+          <button class="button ghost" id="save-backup" type="button">Save redacted backup</button>
+        </div>
+      </details>
+      <label class="app-theme">App theme
+        <select id="app-theme">
+          <option value="system">System</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+          <option value="warm">Warm</option>
+        </select>
+      </label>
       <button class="button ghost" id="connect-ai" type="button">Connect AI</button>
-      <button class="button ghost" id="load-backup" type="button">Open backup</button>
-      <button class="button ghost" id="save-backup" type="button">Save redacted backup</button>
       <button class="button primary" id="print-cv" type="button">Export full PDF</button>
       <input id="backup-file" type="file" accept=".json,application/json" hidden>
     </div>
@@ -29,7 +42,7 @@
       <div class="tabs" role="tablist" aria-label="CV sections">
         <button class="tab" type="button" role="tab" id="tab-blocks" aria-selected="true" aria-controls="editor-panel" data-tab="blocks">Sections</button>
         <button class="tab" type="button" role="tab" id="tab-personal" aria-selected="false" aria-controls="editor-panel" tabindex="-1" data-tab="personal">Personal</button>
-        <button class="tab" type="button" role="tab" id="tab-style" aria-selected="false" aria-controls="editor-panel" tabindex="-1" data-tab="style">Themes</button>
+        <button class="tab" type="button" role="tab" id="tab-style" aria-selected="false" aria-controls="editor-panel" tabindex="-1" data-tab="style">CV style</button>
         <button class="tab" type="button" role="tab" id="tab-agent" aria-selected="false" aria-controls="editor-panel" tabindex="-1" data-tab="agent">Agent</button>
       </div>
       <div id="editor-panel" role="tabpanel" aria-labelledby="tab-blocks"></div>

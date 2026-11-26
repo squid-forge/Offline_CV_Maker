@@ -1,13 +1,13 @@
 using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Diagnostics;
-using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using System.Windows.Forms;
 using System.Drawing;
 using System.Reflection;
-using System.Runtime.InteropServices;
 
 [assembly: AssemblyTitle("Local CV Maker")]
 [assembly: AssemblyProduct("Local CV Maker")]
@@ -15,8 +15,7 @@ using System.Runtime.InteropServices;
 
 internal static class Program
 {
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern bool AllocConsole();
+    private static volatile ActivityWindow activity;
 
     [STAThread]
     private static void Main(string[] args)
@@ -41,32 +40,35 @@ internal static class Program
                 Thread.Sleep(Timeout.Infinite);
                 return;
             }
-            if (AllocConsole())
-            {
-                Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
-                Console.Title = "Local CV Maker - Logs";
-            }
-            Log("Local CV Maker is listening at " + LocalServer.Url + "/");
-            Log("MCP is available through Connect AI. Use the tray menu to quit.");
             Application.EnableVisualStyles();
+            using (var activityWindow = new ActivityWindow(OpenBrowser))
             using (var menu = new ContextMenuStrip())
             using (var tray = new NotifyIcon { Icon = SystemIcons.Application, Text = "Local CV Maker", ContextMenuStrip = menu, Visible = true })
             {
+                activity = activityWindow;
+                Log("Editor ready.");
                 menu.Items.Add("Open CV Maker", null, delegate { OpenBrowser(); });
+                menu.Items.Add("Activity", null, delegate
+                {
+                    activityWindow.Show();
+                    activityWindow.WindowState = FormWindowState.Normal;
+                    activityWindow.Activate();
+                });
                 menu.Items.Add("Quit", null, delegate { Application.ExitThread(); });
                 tray.DoubleClick += delegate { OpenBrowser(); };
+                activityWindow.Show();
                 OpenBrowser();
                 Application.Run();
                 tray.Visible = false;
-                Log("Local CV Maker is shutting down.");
+                activity = null;
             }
         }
     }
 
     internal static void Log(string message)
     {
-        try { Console.WriteLine("[{0:HH:mm:ss}] {1}", DateTime.Now, message); }
-        catch (IOException) { }
+        var window = activity;
+        if (window != null) window.Record(message);
     }
 
     private static bool AppIsRunning()
@@ -90,5 +92,94 @@ internal static class Program
         {
             MessageBox.Show("Open " + LocalServer.Url + "/ in a browser.", "Local CV Maker");
         }
+    }
+}
+
+internal sealed class ActivityWindow : Form
+{
+    private const int HistoryLimit = 100;
+    private readonly ConcurrentQueue<string> pending = new ConcurrentQueue<string>();
+    private readonly Queue<string> history = new Queue<string>();
+    private readonly TextBox log;
+    private readonly System.Windows.Forms.Timer refresh;
+
+    internal ActivityWindow(Action openEditor)
+    {
+        Text = "Local CV Maker - Activity";
+        AutoScaleMode = AutoScaleMode.Dpi;
+        Font = SystemFonts.MessageBoxFont;
+        ClientSize = new Size(430, 235);
+        MinimumSize = new Size(365, 225);
+        StartPosition = FormStartPosition.CenterScreen;
+        Icon = SystemIcons.Application;
+
+        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3, Padding = new Padding(14) };
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        layout.Controls.Add(new Label
+        {
+            Text = "You can hide this window and reopen it from the system tray.",
+            AutoSize = true, Dock = DockStyle.Fill, Margin = new Padding(0, 0, 0, 9),
+        }, 0, 0);
+        log = new TextBox
+        {
+            AccessibleName = "Recent activity", Multiline = true, ReadOnly = true, Dock = DockStyle.Fill,
+            ScrollBars = ScrollBars.Vertical, BackColor = SystemColors.Window, Margin = Padding.Empty,
+        };
+        layout.Controls.Add(log, 0, 1);
+        var actions = new FlowLayoutPanel
+        {
+            AutoSize = true, Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft,
+            WrapContents = false, Padding = new Padding(0, 6, 0, 0), Margin = Padding.Empty,
+        };
+        var hide = new Button { Text = "Hide", AutoSize = true };
+        hide.Click += delegate { Hide(); };
+        var open = new Button { Text = "Open editor", AutoSize = true };
+        open.Click += delegate { openEditor(); };
+        actions.Controls.Add(hide);
+        actions.Controls.Add(open);
+        layout.Controls.Add(actions, 0, 2);
+        Controls.Add(layout);
+
+        refresh = new System.Windows.Forms.Timer { Interval = 250 };
+        refresh.Tick += delegate { ShowRecentActivity(); };
+        refresh.Start();
+    }
+
+    internal void Record(string message)
+    {
+        pending.Enqueue(String.Format("{0:t}   {1}", DateTime.Now, message));
+    }
+
+    private void ShowRecentActivity()
+    {
+        string line;
+        if (!pending.TryDequeue(out line)) return;
+        for (int count = 1; ; count++)
+        {
+            if (history.Count == HistoryLimit) history.Dequeue();
+            history.Enqueue(line);
+            if (count == HistoryLimit || !pending.TryDequeue(out line)) break;
+        }
+        log.Lines = history.ToArray();
+        log.SelectionStart = log.TextLength;
+        log.ScrollToCaret();
+    }
+
+    protected override void OnFormClosing(FormClosingEventArgs e)
+    {
+        base.OnFormClosing(e);
+        if (e.CloseReason == CloseReason.UserClosing)
+        {
+            e.Cancel = true;
+            Hide();
+        }
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing && refresh != null) refresh.Dispose();
+        base.Dispose(disposing);
     }
 }
