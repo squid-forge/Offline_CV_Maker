@@ -6,6 +6,8 @@ An AI-compatible CV maker for Windows with a separate **Personal** section. Buil
 
 Double-click **Local CV Maker.exe** on Windows 10 or 11. The app opens the local editor in your browser at `http://127.0.0.1:8769/` and a small **Activity** window. Activity shows startup and request status. **Hide** or close it to keep using the editor. The system tray menu can reopen the editor or Activity and quit the app.
 
+If you downloaded the source or prefer to compile your own executable, see [Build from source](#build-from-source).
+
 1. Enter your name, contact details, and an optional photo under **Personal**. Open **Sections** to edit your headline, profile, education, projects, work, skills, and languages. The redacted preview uses A4 proportions and appears below the editor on narrow screens.
 2. Use **Add section** for certifications, volunteering, or other custom sections. Use the **↑** and **↓** buttons beside sections and entries to change their order in the preview and PDF.
 3. Highlight sensitive words in a description and choose **Mark selected text as private**. You can also enter phrases directly in **Personal**. Known values become numbered placeholders. **CV style** controls the preview and PDF. **App theme** changes the editor colors and remembers your choice in this browser.
@@ -41,15 +43,22 @@ The app makes no external requests. The local service authenticates the editor a
 
 Masking covers exact personal-field values, declared words and phrases, common email and phone formats, and web links. Free text can still contain identifying details such as initials or named locations. Review the request before sharing and mark any remaining details as private. A connected online agent may send the approved text to its model provider. Keep the browser profile and full backups outside any files or browser sessions you give an agent access to. Use the app offline when no CV text should reach an external service.
 
-## Build and test
+## Build from source
 
-Run from a checkout on Windows with the .NET Framework C# compiler:
+1. Clone the repository or use **Code → Download ZIP** on GitHub and extract the files.
+2. Quit any running instance from the system tray. Open Command Prompt in the extracted folder and run `build.cmd`.
+3. Open the resulting **Local CV Maker.exe** in the same folder.
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File ./build.ps1
+The build uses the Windows .NET Framework C# compiler and needs no package downloads. This option compiles the reviewed source on your own computer. The resulting executable is unsigned, and Windows security policies still apply.
+
+For build automation, PowerShell supports `./build.ps1 -OutputPath 'C:/path/Local CV Maker.exe'`.
+
+## Tests
+
+```text
 node --test ./tests/privacy.test.mjs
 ```
 
-The build embeds the web UI in a single executable with no dependency downloads or signing step. To exercise both MCP transports, start the build with `--serve` in an isolated test session, set `CV_TEST_URL` to `http://127.0.0.1:8769` and `CV_TEST_EXE` to the executable path, and run `node --test ./tests/mcp.test.mjs` from the same Windows account.
+To exercise both MCP transports, start the build with `--serve` in an isolated test session, set `CV_TEST_URL` to `http://127.0.0.1:8769` and `CV_TEST_EXE` to the executable path, and run `node --test ./tests/mcp.test.mjs` from the same Windows account.
 
 MIT licensed. See [LICENSE](LICENSE).
