@@ -134,9 +134,10 @@ internal sealed class ActivityWindow : Form
             AutoSize = true, Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft,
             WrapContents = false, Padding = new Padding(0, 6, 0, 0), Margin = Padding.Empty,
         };
-        var hide = new Button { Text = "Hide", AutoSize = true, MinimumSize = new Size(76, 30) };
+        var actionSize = new Size(92, 30);
+        var hide = new Button { Text = "Hide", AutoSize = true, MinimumSize = actionSize };
         hide.Click += delegate { Hide(); };
-        var open = new Button { Text = "Open editor", AutoSize = true, MinimumSize = new Size(92, 30) };
+        var open = new Button { Text = "Open editor", AutoSize = true, MinimumSize = actionSize };
         open.Click += delegate { openEditor(); };
         actions.Controls.Add(hide);
         actions.Controls.Add(open);
