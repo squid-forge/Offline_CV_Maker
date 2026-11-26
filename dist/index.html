@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="description" content="An AI-compatible CV maker with a separate Personal section. Build and export your CV offline, or connect a compatible MCP agent for optional editing help.">
+  <title>Local CV Maker</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="mark" aria-hidden="true"><span></span><span></span><span></span></div>
+      <div><h1>Local CV Maker</h1><p>AI-compatible CV maker</p></div>
+    </div>
+    <div class="toolbar">
+      <span class="save-status" id="save-status" role="status">Opening draft…</span>
+      <button class="button ghost" id="connect-ai" type="button">Connect AI</button>
+      <button class="button ghost" id="load-backup" type="button">Open backup</button>
+      <button class="button ghost" id="save-backup" type="button">Save redacted backup</button>
+      <button class="button primary" id="print-cv" type="button">Export full PDF</button>
+      <input id="backup-file" type="file" accept=".json,application/json" hidden>
+    </div>
+  </header>
+  <main class="workspace">
+    <section class="editor" aria-label="CV editor">
+      <p class="workspace-intro">Build and export your CV offline. Keep personal details in a separate section, with optional editing help from your MCP-compatible AI agent.</p>
+      <div class="editor-heading">
+        <h2>Edit your CV</h2>
+        <label class="layout-choice">Section order
+          <select id="layout">
+            <option value="technical">Education first</option>
+            <option value="experience">Work experience first</option>
+            <option value="custom" disabled>Custom order</option>
+          </select>
+        </label>
+      </div>
+      <div class="tabs" role="tablist" aria-label="CV sections">
+        <button class="tab" type="button" role="tab" id="tab-blocks" aria-selected="true" aria-controls="editor-panel" data-tab="blocks">Sections</button>
+        <button class="tab" type="button" role="tab" id="tab-personal" aria-selected="false" aria-controls="editor-panel" tabindex="-1" data-tab="personal">Personal</button>
+        <button class="tab" type="button" role="tab" id="tab-style" aria-selected="false" aria-controls="editor-panel" tabindex="-1" data-tab="style">Themes</button>
+        <button class="tab" type="button" role="tab" id="tab-agent" aria-selected="false" aria-controls="editor-panel" tabindex="-1" data-tab="agent">Agent</button>
+      </div>
+      <div id="editor-panel" role="tabpanel" aria-labelledby="tab-blocks"></div>
+      <p class="notice" id="editor-message" role="status" hidden></p>
+      <div class="editor-footer">
+        <button class="text-button" id="reset-draft" type="button">Start a blank CV</button>
+        <button class="text-button" id="load-example" type="button">Load fictional example</button>
+      </div>
+    </section>
+    <section class="preview-pane" aria-labelledby="preview-title">
+      <header class="preview-header">
+        <h2 id="preview-title">Live preview</h2>
+        <span class="privacy-badge">Redacted preview</span>
+      </header>
+      <article class="paper" id="cv-preview" aria-label="CV preview"></article>
+    </section>
+  </main>
+  <dialog id="ai-connection" aria-labelledby="ai-connection-title">
+    <div class="dialog-heading">
+      <h2 id="ai-connection-title">Connect AI</h2>
+      <form method="dialog"><button class="button ghost" type="submit">Close</button></form>
+    </div>
+    <div class="fields">
+      <p class="privacy-hint">Add Local CV Maker once in your agent’s MCP settings. CV content and proposals travel through the connection.</p>
+      <label>Connection type
+        <select id="ai-client">
+          <option value="http">Local URL · Streamable HTTP</option>
+          <option value="stdio">Local command · stdio</option>
+        </select>
+      </label>
+      <p id="ai-setup-help" class="privacy-hint"></p>
+      <label>Local CV Maker server settings<textarea id="ai-setup" rows="7" readonly></textarea></label>
+      <button class="button ghost" id="copy-ai-setup" type="button">Copy settings</button>
+      <p id="ai-setup-status" class="privacy-hint" role="status"></p>
+    </div>
+  </dialog>
+  <dialog id="block-ai" aria-labelledby="block-ai-title">
+    <div class="dialog-heading">
+      <h2 id="block-ai-title">Edit block with AI</h2>
+      <form method="dialog"><button class="button ghost" type="submit">Close</button></form>
+    </div>
+    <div class="fields">
+      <label>What should the AI change?<textarea id="block-ai-instruction" rows="2" maxlength="1000"></textarea></label>
+      <details class="agent-request-preview"><summary>Review what the AI will receive</summary><p id="block-ai-share" class="cv-text"></p></details>
+      <div class="agent-actions">
+        <button class="button primary" id="block-ai-queue" type="button">Send via MCP</button>
+        <button class="button ghost" id="block-ai-next" type="button" hidden>Send after current</button>
+        <button class="text-button" id="block-ai-cancel" type="button" hidden>Cancel request</button>
+        <button class="text-button" id="block-ai-connect" type="button">Connection settings</button>
+      </div>
+      <p id="block-ai-status" class="privacy-hint" role="status"></p>
+      <div id="block-ai-proposal" class="fields" hidden>
+        <p id="block-ai-note" class="privacy-hint" hidden></p>
+        <div class="block-diff">
+          <div><h3>Current block</h3><dl id="block-ai-before"></dl></div>
+          <div><h3>Proposed block</h3><dl id="block-ai-after"></dl></div>
+        </div>
+        <button class="button primary" id="block-ai-apply" type="button">Apply to block</button>
+      </div>
+    </div>
+  </dialog>
+</body>
+</html>
