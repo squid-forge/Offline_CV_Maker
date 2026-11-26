@@ -106,10 +106,11 @@ internal sealed class ActivityWindow : Form
     internal ActivityWindow(Action openEditor)
     {
         Text = "Local CV Maker - Activity";
+        AutoScaleDimensions = new SizeF(96F, 96F);
         AutoScaleMode = AutoScaleMode.Dpi;
         Font = SystemFonts.MessageBoxFont;
-        ClientSize = new Size(430, 235);
-        MinimumSize = new Size(365, 225);
+        ClientSize = new Size(428, 216);
+        MinimumSize = new Size(344, 198);
         StartPosition = FormStartPosition.CenterScreen;
         Icon = SystemIcons.Application;
 
@@ -119,7 +120,7 @@ internal sealed class ActivityWindow : Form
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.Controls.Add(new Label
         {
-            Text = "You can hide this window and reopen it from the system tray.",
+            Text = "Reopen Activity from the system tray.",
             AutoSize = true, Dock = DockStyle.Fill, Margin = new Padding(0, 0, 0, 9),
         }, 0, 0);
         log = new TextBox
@@ -133,9 +134,9 @@ internal sealed class ActivityWindow : Form
             AutoSize = true, Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft,
             WrapContents = false, Padding = new Padding(0, 6, 0, 0), Margin = Padding.Empty,
         };
-        var hide = new Button { Text = "Hide", AutoSize = true };
+        var hide = new Button { Text = "Hide", AutoSize = true, MinimumSize = new Size(76, 30) };
         hide.Click += delegate { Hide(); };
-        var open = new Button { Text = "Open editor", AutoSize = true };
+        var open = new Button { Text = "Open editor", AutoSize = true, MinimumSize = new Size(92, 30) };
         open.Click += delegate { openEditor(); };
         actions.Controls.Add(hide);
         actions.Controls.Add(open);

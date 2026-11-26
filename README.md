@@ -6,7 +6,7 @@ An AI-compatible CV maker for Windows with a separate **Personal** section. Buil
 
 Double-click **Local CV Maker.exe** on Windows 10 or 11. The app opens the local editor in your browser at `http://127.0.0.1:8769/` and a small **Activity** window. Activity shows startup and request status. **Hide** or close it to keep using the editor. The system tray menu can reopen the editor or Activity and quit the app.
 
-1. Enter your name, contact details, and an optional photo under **Personal**. Open **Sections** to edit your headline, profile, education, projects, work, skills, and languages. The redacted preview appears beside the editor on wider screens.
+1. Enter your name, contact details, and an optional photo under **Personal**. Open **Sections** to edit your headline, profile, education, projects, work, skills, and languages. The redacted preview uses A4 proportions and appears below the editor on narrow screens.
 2. Use **Add section** for certifications, volunteering, or other custom sections. Use the **↑** and **↓** buttons beside sections and entries to change their order in the preview and PDF.
 3. Highlight sensitive words in a description and choose **Mark selected text as private**. You can also enter phrases directly in **Personal**. Known values become numbered placeholders. **CV style** controls the preview and PDF. **App theme** changes the editor colors and remembers your choice in this browser.
 4. Choose **Export full PDF**, select **Save as PDF** in your browser and turn off browser headers and footers. The app restores known personal values in the print document only. The regular browser print command prints the redacted preview.
@@ -50,6 +50,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File ./build.ps1
 node --test ./tests/privacy.test.mjs
 ```
 
-The build embeds the web UI in a single executable with no dependency downloads. To exercise both MCP transports, start the build with `--serve` in an isolated test session, set `CV_TEST_URL` to `http://127.0.0.1:8769` and `CV_TEST_EXE` to the executable path, and run `node --test ./tests/mcp.test.mjs`.
+The build embeds the web UI in a single executable with no dependency downloads or signing step. To exercise both MCP transports, start the build with `--serve` in an isolated test session, set `CV_TEST_URL` to `http://127.0.0.1:8769` and `CV_TEST_EXE` to the executable path, and run `node --test ./tests/mcp.test.mjs`.
 
 MIT licensed. See [LICENSE](LICENSE).

@@ -446,8 +446,10 @@ function renderPaper(target, cv, full = false) {
   target.style.setProperty("--cv-accent", cv.appearance.accent);
   target.style.setProperty("--cv-text", cv.appearance.textColor);
   target.style.setProperty("--cv-size", cv.appearance.fontSize + "pt");
+  target.style.setProperty("--cv-point-size", String(cv.appearance.fontSize));
   target.style.setProperty("--cv-line", String(1.4 * cv.appearance.spacing));
   target.style.setProperty("--cv-margin", cv.appearance.margin + "mm");
+  target.style.setProperty("--cv-margin-mm", String(cv.appearance.margin));
   target.innerHTML = `<header class="cv-heading">
     <div>
       <h2>${escapeText(p.name.trim() || (full ? "Your name" : "Curriculum vitae"))}</h2>
